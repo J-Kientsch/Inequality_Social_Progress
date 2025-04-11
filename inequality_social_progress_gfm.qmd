@@ -1,0 +1,494 @@
+---
+title: "Global Inequality and Social Progress"
+author: "Jacky K | 2025-04-05"
+format:
+  gfm:
+    self-contained: true
+    theme:
+      light: cosmo
+      dark: darkly
+    toc: true           # include a table of contents
+    toc-location: left  # place the table of contents on the left
+    code-fold: true     # allow code folding for a cleaner look
+fig-width: 12 
+fig-height: 7
+fig-responsive: true
+---
+
+This report explores global inequality and social progress by examining key social, economic, and health-related indicators over the past 50 years (1975–2024). The analysis focuses on five selected countries—Switzerland, Canada, Ghana, Japan, and India—which represent a spectrum ranging from highly developed to emerging economies. Through various visualizations, we assess trends in Life Expectancy, Human Development Index (HDI), Gini Coefficient, Poverty Rate, and Education Index, and investigate the interrelationships among these indicators.
+
+## Data and Methodology 
+Data are sourced from Gapminder (https://www.gapminder.org) and include multiple indicators reflecting different aspects of social progress and inequality. For consistency and historical comparability, only data between 1975 and 2024 have been retained. The selected indicators are analyzed using several visualization techniques:
+
+- **Time Series Line Charts:** To display trends over time.
+- **Heatmaps:** To provide a year-by-country view of indicator values.
+- **Violin Plots:** To illustrate the distribution of key indicators by decade.
+- **Summary Tables:** For descriptive statistics on inequality (specifically the Gini Coefficient) at benchmark years.
+- **Correlation Heatmap:** To explore the relationships between indicators.
+- **Rolling Averages:** To smooth out short-term fluctuations and highlight long-term trends.
+
+The chosen countries are deliberately diverse. For example, Switzerland, Canada, and Japan are generally characterized by high living standards and strong social safety nets, whereas Ghana and India—representing developing or emerging economies—provide a contrasting background where rapid progress is often accompanied by greater disparities.
+
+```{python echo:False}
+import warnings
+warnings.filterwarnings("ignore")
+import seaborn as sns
+
+# Define the list of selected countries in the desired order.
+selected_countries = ["Switzerland", "Canada", "Ghana", "Japan", "India"]
+
+# Build a color mapping using the same Seaborn colorblind palette.
+palette = sns.color_palette("colorblind", n_colors=len(selected_countries))
+country_color_mapping = dict(zip(selected_countries, palette))
+```
+
+```{python echo:False}
+
+# Load libraries
+import pandas as pd    
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import country_converter as cc
+from itables import show, init_notebook_mode
+
+# Initialize interactive tables (useful for Jupyter environments)
+init_notebook_mode(all_interactive=True)
+```
+
+```{python echo:False}
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.io.shapereader as shpreader
+import seaborn as sns
+
+# (Assumes selected_countries and country_color_mapping are already defined globally.)
+
+# Create a figure and axis with a Plate Carree projection.
+fig = plt.figure(figsize=(12, 7))
+ax = plt.axes(projection=ccrs.PlateCarree())
+ax.set_global()
+
+# Load Natural Earth's 110m cultural data for country boundaries.
+shapefile = shpreader.natural_earth(resolution='110m', category='cultural', name='admin_0_countries')
+
+# Loop over each country record.
+for record in shpreader.Reader(shapefile).records():
+    country_name = record.attributes['NAME_LONG']
+    if country_name in selected_countries:
+        facecolor = country_color_mapping[country_name]
+        edgecolor = 'black'
+    else:
+        facecolor = 'lightgrey'
+        edgecolor = 'white'
+    ax.add_geometries(
+        [record.geometry],
+        ccrs.PlateCarree(),
+        facecolor=facecolor,
+        edgecolor=edgecolor,
+        linewidth=0.5
+    )
+
+if hasattr(ax, "outline_patch"):
+    ax.outline_patch.set_visible(False)
+
+plt.title("World Map Highlighting Selected Countries", fontsize=16, fontweight="bold")
+plt.tight_layout()
+plt.show()
+```
+
+The world map above highlights the five selected countries in distinct colors.
+
+```{python echo:False}
+
+# Import the data and subset it
+# # Select Countries and Years 1975-2024
+# --------------------------------------------------
+selected_countries = ["Switzerland", "Canada", "Ghana", "Japan", "India"]
+
+def subset_by_country_and_year(df, start_year=1975, end_year=2024):
+    """
+    Subset a DataFrame by the first column (country names) for the selected countries
+    and the columns (years) that lie within start_year and end_year (inclusive).
+    """
+    country_col = df.columns[0]
+    # Select columns that represent years
+    selected_years = [col for col in df.columns[1:] if col.isdigit() and start_year <= int(col) <= end_year]
+    return df[df[country_col].isin(selected_countries)][[country_col] + selected_years]
+
+# Import raw datasets
+life_exp_raw   = pd.read_csv("data/lex.csv")
+hdi_raw        = pd.read_csv("data/hdi_human_development_index.csv")
+gini_raw       = pd.read_csv("data/si_pov_gini.csv")
+poverty_raw    = pd.read_csv("data/gm_685pov_num.csv")
+education_raw  = pd.read_csv("data/owid_education_idx.csv")
+
+# Print basic shape info for each raw dataset
+print("Life Expectancy Data Shape:", life_exp_raw.shape)
+print("HDI Data Shape:", hdi_raw.shape)
+print("Gini Data Shape:", gini_raw.shape)
+print("Poverty Data Shape:", poverty_raw.shape)
+print("Education Data Shape:", education_raw.shape)
+
+# Subset each dataset to the selected countries and the period 1975-2024
+life_exp_data  = subset_by_country_and_year(life_exp_raw)
+hdi_data       = subset_by_country_and_year(hdi_raw)
+gini_data      = subset_by_country_and_year(gini_raw)
+poverty_data   = subset_by_country_and_year(poverty_raw)
+education_data = subset_by_country_and_year(education_raw)
+
+# Check the life expectancy subset as an example
+print(life_exp_data.head())
+
+
+```
+
+```{python echo:False}
+# Time Series Function
+def plot_time_series(df, indicator, y_label=None, title=None):
+    """
+    Plots a time series line chart for a given indicator using a fixed color mapping.
+    """
+    country_col = df.columns[0]
+    # Melt the DataFrame to long format.
+    df_long = df.melt(id_vars=country_col, var_name="year", value_name=indicator)
+    df_long["year"] = df_long["year"].astype(int)
+
+    if y_label is None:
+        y_label = indicator
+    if title is None:
+        title = f"{indicator} Trends (1975-2024)"
+
+    plt.figure(figsize=(12, 7))
+    ax = sns.lineplot(
+        data=df_long,
+        x="year",
+        y=indicator,
+        hue=country_col,
+        hue_order=selected_countries,
+        palette=country_color_mapping,
+        marker="o",
+        linewidth=2.5,
+        markersize=10
+    )
+
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
+    ax.set_xlabel("Year", fontsize=14)
+    ax.set_ylabel(y_label, fontsize=14)
+    ax.legend(title=country_col, fontsize=12, title_fontsize=13, loc="best")
+    ax.tick_params(axis="both", which="major", labelsize=12)
+
+    # Annotate the final data point for each country.
+    for country in df_long[country_col].unique():
+        sub = df_long[df_long[country_col] == country]
+        final = sub[sub["year"] == sub["year"].max()]
+        if not final.empty:
+            x_val = final["year"].values[0]
+            y_val = final[indicator].values[0]
+            ax.text(x_val, y_val, f" {country}", fontsize=10, verticalalignment="center")
+
+    sns.despine(trim=True)
+    plt.tight_layout()
+    return ax
+
+```
+
+## Global Social Progress
+This section analyzes key social progress indicators, namely **Life Expectancy** and **Human Development Index (HDI)**.
+
+### Life Expectancy Trends 
+#### Time Series 
+A time series line chart plots Life Expectancy from 1975 to 2024 for each of the selected countries. Each country’s trend is marked by distinct colors and markers. The final data point for each country is annotated with its name.
+
+```{python echo:False}
+plot_time_series(life_exp_data, "Life Expectancy", y_label="Life Expectancy", title="Life Expectancy Trends (since 1975)")
+plt.show()
+```
+- **Developed vs. Developing Trends:** Typically, countries like Switzerland, Canada, and Japan exhibit high and relatively stable life expectancy values, reflecting long-term investments in healthcare and social welfare.
+- **Improvement Over Time:** In Ghana and India, the graph shows an upward trend that, while still below the developed nations, indicates notable improvements in health outcomes over the last 50 years.
+- **Social Progress Indicator:** Life expectancy is a critical measure of social progress. Higher life expectancy signals better public health, access to medical services, and improved living conditions—all of which are important in the fight against global inequality.
+
+
+### Human Development Index
+#### Time Series
+A line chart displays trends in HDI values over the period 1975–2024 for the selected countries. Like the life expectancy graph, it is annotated with distinct colors and final data point labels.
+
+```{python echo:False}
+plot_time_series(hdi_data, "Human Development Index [HDI]", y_label="HDI", title="HDI Trends (since 1975)")
+plt.show()
+```
+
+
+- **High vs. SteadyGrowth:** Developed countries maintain high HDI scores with steady or slow growth, emphasizing a high base level of human development.
+- **Rapid Progress in Emerging Economies:** In countries like India and Ghana, HDI shows steeper improvements over time, indicating rapid gains in education, income, and health dimensions. This signals progress but also highlights that convergence is an ongoing process.
+- **Implications:** HDI is a composite measure; thus, improvements hint at multifaceted progress where better education, healthcare, and economic output collectively lift human development.
+
+
+### HDI Heatmap
+
+The heatmap represents HDI values with time (years) on the vertical axis and countries on the horizontal axis. The color gradient (using the “coolwarm” palette) provides an at-a-glance view of changes in HDI over time.
+
+```{python echo:False}
+def heatmap_improved(df, value_label="HDI", title="HDI Heatmap (1975-2024)"):
+    """
+    Creates a heatmap for the specified indicator across time and country.
+    """
+    country_col = df.columns[0]
+    df_long = df.melt(id_vars=country_col, var_name="year", value_name=value_label)
+    df_long["year"] = df_long["year"].astype(int)
+    pivot_df = df_long.pivot(index="year", columns=country_col, values=value_label)
+
+    plt.figure(figsize=(12, 8))
+    ax = sns.heatmap(
+        pivot_df,
+        cmap="coolwarm",
+        annot=True,
+        fmt=".3f",
+        linewidths=0.3,
+        annot_kws={"fontsize":8}
+    )
+    ax.set_title(title, fontsize=16, fontweight="bold", pad=12)
+    ax.set_xlabel("Country", fontsize=14)
+    ax.set_ylabel("Year", fontsize=14)
+    plt.tight_layout()
+    return ax
+
+# Display the HDI heatmap
+heatmap_improved(hdi_data, value_label="HDI", title="HDI Heatmap (1975-2024)")
+plt.show()
+
+```
+
+- **Temporal Shifts:** By examining the color transitions, one can quickly spot periods of significant progress or stagnation. Darker hues in later years for some countries signal improved development outcomes.
+
+- **Country Comparisons:** The relative intensity of colors across the countries provides insights into the widening or narrowing gaps in human development. For instance, if the gap between Switzerland and India becomes smaller over time, the heatmap might reveal this convergence.
+
+- **Policy Reflection:** Sustained improvements evident from the heatmap can be linked to targeted policies in education, health, and economic reforms.
+
+
+#### Violin Plot by Decade 
+
+This faceted violin plot breaks the HDI data down by decade for each country. Each subplot (or facet) corresponds to one country and shows the distribution of HDI scores within each decade.
+
+```{python echo:False message:False}
+def faceted_violin_hdi_improved(df, value_label="HDI", title="HDI Distribution by Decade (Faceted by Country)"):
+    """
+    Creates faceted violin plots with each country's fill color based on the global color mapping.
+    """
+    country_col = df.columns[0]
+    df_long = df.melt(id_vars=country_col, var_name="year", value_name=value_label)
+    df_long["year"] = df_long["year"].astype(int)
+    # Create a 'decade' column.
+    df_long["decade"] = (df_long["year"] // 10) * 10
+
+    # Create a FacetGrid with facets ordered by selected_countries.
+    g = sns.FacetGrid(df_long, col=country_col, col_wrap=3, height=4, aspect=1, col_order=selected_countries)
+
+    # Define a custom function to draw a violin plot using the country’s color.
+    def custom_violinplot(data, **kwargs):
+    # Remove any pre-existing 'color' keyword from kwargs.
+        kwargs.pop("color", None)
+        country = data[country_col].iloc[0]
+        color = country_color_mapping.get(country)
+        sns.violinplot(x="decade", y=value_label, data=data, inner=None, color=color, width=0.8, **kwargs)
+
+
+    g.map_dataframe(custom_violinplot)
+    # Optionally, overlay a boxplot and jittered stripplot for additional details.
+    g.map_dataframe(sns.boxplot, x="decade", y=value_label, width=0.2, showcaps=True,
+                    boxprops={'facecolor':'None'}, showfliers=False, whiskerprops={'linewidth':2})
+    g.map_dataframe(sns.stripplot, x="decade", y=value_label, color="black", alpha=0.5, jitter=True)
+    g.set_axis_labels("Decade", value_label)
+    g.set_titles("{col_name}")
+    g.fig.suptitle(title, y=1.05, fontsize=16, fontweight="bold")
+    plt.tight_layout()
+    return g
+
+faceted_violin_hdi_improved(life_exp_data)
+fig.show()
+```
+
+- **Variability Over Time:** The width and shape of each “violin” illustrate the spread and density of HDI values. A narrower plot suggests less variability—often seen in countries with stable development policies.
+- **Improvement and Convergence:** Shifts in the central tendency across decades provide evidence for rising HDI levels in emerging economies. For example, a violin plot for India may show broader variability in earlier decades, which later narrows and shifts upward as the country develops.
+- **Socioeconomic Polarization:** Large variations in a country’s distribution might hint at internal disparities. A tight distribution in a developed country would typically suggest that social progress is shared more uniformly among the population.
+
+
+## Inequality Measures 
+This section examines inequality-related indicators such as the **Gini Coefficient**, **Poverty Rate**, and Access to Education.
+
+### GINI Coefficient 
+The Gini coefficient is a widely used measure of income inequality. It ranges from 0 to 1, where:
+
+0 represents perfect equality (everyone has the same income), and
+
+1 represents perfect inequality (all income is earned by a single individual).
+
+In the context of this report, the Gini coefficient is important because it provides a quantitative measure of how evenly or unevenly income or wealth is distributed among the population. This metric is critical when assessing global inequality and social progress, as higher inequality (a higher Gini coefficient) can correlate with various social challenges, while lower inequality suggests a more equitable distribution of resources. Comparing the Gini coefficient with other indicators like HDI and life expectancy can help us understand how economic disparities might influence overall human development and well-being.
+
+#### Quick Summary Table by Decade 
+First, we have a quick look at the GINI coefficient by decade. The results are displayed in the table below.
+The selected benchmark years are 1980, 2000, and 2024. 
+- 1980: Represents a period of significant global economic shifts and early market liberalizations.
+- 2000: Captures the turn of the millennium, reflecting changes in technology and globalization.
+- 2024: Provides the most recent data, showing current levels of inequality.
+A styled table summarizes the Gini Coefficient for benchmark years (1980, 2000, 2024) by country. It shows mean, minimum, and maximum values for each decade with zebra striping and highlighting to emphasize lowest and highest values.
+
+
+```{python echo:False}
+def create_gini_decade_summary_styled(df, value_label="Gini Coefficient"):
+    country_col = df.columns[0]
+    df_long = df.melt(id_vars=country_col, var_name="year", value_name=value_label)
+    df_long["year"] = df_long["year"].astype(int)
+    df_long = df_long[df_long["year"] >= 1975]
+    df_long = df_long.dropna(subset=[value_label])
+    df_long["decade"] = df_long["year"].apply(
+        lambda y: "1960s (1963–1969)" if 1963 <= y < 1970 else f"{(y // 10) * 10}s"
+    )
+    summary = df_long.groupby([country_col, "decade"])[value_label].agg(
+        Mean="mean",
+        Minimum="min",
+        Maximum="max"
+    ).reset_index()
+    summary["Mean"] = summary["Mean"].round(3)
+    summary["Minimum"] = summary["Minimum"].round(3)
+    summary["Maximum"] = summary["Maximum"].round(3)
+    
+    # Apply styling: zebra striping and highlight min/max
+    styled = summary.style.apply(lambda x: ['background: #f9f9f9' if i % 2 else 'background: #ffffff' for i in range(len(x))], axis=0)\
+                            .highlight_min(subset=["Minimum"], color='light blue')\
+                            .highlight_max(subset=["Maximum"], color='salmon')
+    return styled
+
+# Generate and display the styled Gini summary table
+gini_decade_summary_styled = create_gini_decade_summary_styled(gini_data, value_label="Gini Coefficient")
+# For interactive environments:
+from itables import show
+show(gini_decade_summary_styled)
+```
+
+- **Measuring Inequality:** The Gini Coefficient quantitatively expresses income inequality on a scale from 0 (perfect equality) to 1 (perfect inequality).  
+- **Benchmark Comparisons:** Changes in the summary statistics across benchmark years illustrate how income inequality has evolved. For example, if the mean Gini for India in 1980 was high but declines by 2024, it could signal effective policies to reduce income disparities.
+- **Range Indicators:** The minimum and maximum values within each decade also help reveal volatility or persistent pockets of inequality within the country’s income distribution.
+
+
+#### GINI Time Series Plot
+A line chart that plots the Gini Coefficient from 1975 to 2024 for each country.
+
+```{python echo:False}
+plot_time_series(gini_data, "GINI Coefficient", y_label="GINI Coefficient", title="GINI CoefficientTrends (since 1975)")
+plt.show()
+```
+
+- **Trend Insights:** Observing a rising Gini in a particular country could indicate that, despite overall economic growth, wealth is not being evenly distributed.
+- **Contrasting Patterns:** Developed countries might display moderate or stable Gini values, while developing countries may show a more dynamic range—sometimes higher volatility due to rapid economic changes.
+- **Social Implications:** Understanding these trends is essential since high inequality can impact social cohesion, economic opportunity, and overall human development.
+
+
+### Poverty Rate
+#### Time Series 
+The Poverty Rate trends are depicted using a time series line chart. An adjustment is made using a ticker to handle the broad range of values.
+
+```{python echo:False}
+ax = plot_time_series(poverty_data, "Poverty Rate", y_label="Poverty Rate", title="Poverty Rate Trends (since 1975)")
+from matplotlib.ticker import MaxNLocator
+ax.yaxis.set_major_locator(MaxNLocator(20))
+
+plt.show()
+
+```
+
+- **Economic Hardship Over Time:** A declining poverty rate generally indicates improved living standards and greater access to economic opportunities.
+- **Country Differences:** While developed countries might show low and stable poverty rates, emerging economies could display steeper declines as economic policies take effect—but persistent high rates may also highlight continuing challenges.
+- **Policy Effectiveness:** This graph can be directly linked to the outcomes of social safety nets and targeted poverty alleviation initiatives over the decades.
+
+
+## Relationships and Trends 
+In this section, we combine the previously explored indicators to investigate how they relate to one another. Specifically, we look at:
+Correlation Analysis among the indicators.
+
+
+### Correlation Heatmap 
+A correlation heatmap visualizes the pairwise relationships between Life Expectancy, HDI, Gini Coefficient, Poverty Rate, and Education Index.
+
+```{python echo:False}
+# create a merged dataset in long format
+
+# Helper function: Melt each dataset without filtering to benchmarks
+def melt_indicator(df, indicator_name):
+    country_col = df.columns[0]
+    df_long = df.melt(id_vars=country_col, var_name="Year", value_name=indicator_name)
+    # Keep only rows where Year is numeric
+    df_long = df_long[df_long["Year"].str.isdigit()]
+    # Convert Year to int
+    df_long["Year"] = df_long["Year"].astype(int)
+    return df_long
+
+# Melt each indicator into long format (no filtering yet)
+life_exp_long   = melt_indicator(life_exp_data, "Life Expectancy")
+hdi_long        = melt_indicator(hdi_data, "HDI")
+gini_long_bm    = melt_indicator(gini_data, "Gini Coefficient")
+poverty_long    = melt_indicator(poverty_data, "Poverty Rate")
+education_long  = melt_indicator(education_data, "Education Index")
+
+# Merge datasets on Country and Year using 'outer' to keep all rows
+merged_long = (
+life_exp_long
+.merge(hdi_long,        on=["country", "Year"], how="outer")
+.merge(gini_long_bm,    on=["country", "Year"], how="outer")
+.merge(poverty_long,    on=["country", "Year"], how="outer")
+.merge(education_long,  on=["country", "Year"], how="outer")
+)
+```
+
+```{python echo:False}
+def correlation_heatmap(df, indicators=None, title="Correlation Heatmap of      Social Progress Indicators"):
+    """
+    Calculates and displays a correlation heatmap for a list of numeric indicators.
+    """
+    # If no indicators are specified, select numeric columns (excluding 'year')
+    if not indicators:
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        numeric_cols = [col for col in numeric_cols if col.lower() != "year"]
+        indicators = numeric_cols
+
+    # Create a copy and convert each indicator column to numeric, coercing errors to NaN
+    df_numeric = df.copy()
+    for col in indicators:
+        df_numeric[col] = pd.to_numeric(df_numeric[col], errors='coerce')
+
+    # Drop rows where all indicators are NaN
+    corr_df = df_numeric[indicators].dropna(how="all")
+
+    # Calculate the correlation matrix
+    corr_matrix = corr_df.corr()
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(corr_matrix, annot=True, cmap="coolwarm", fmt=".2f", square=True, linewidths=0.5)
+    plt.title(title, fontsize=14, fontweight="bold", pad=12)
+    plt.tight_layout()
+    plt.show()
+# Define the indicator list for the correlation analysis
+indicator_list = ["Life Expectancy", "HDI", "Gini Coefficient", "Poverty Rate", "Education Index"]
+
+correlation_heatmap(merged_long, indicators=indicator_list, 
+                title="Correlation Heatmap of Social Progress Indicators (Benchmark Years)")
+```
+
+
+- **Interdependence of Factors:** Strong positive correlations (e.g., between HDI and Life Expectancy or Education Index) indicate that improvements in one dimension are often accompanied by advances in another.
+- **Inverse Relationships:** Negative correlations between HDI and Poverty Rate or between Education Index and Gini Coefficient suggest that higher human development or education standards typically align with lower poverty and inequality.
+- **Policy Relevance:** This analysis supports the argument that multi-faceted policy approaches are necessary—addressing one area (such as education) can have cascading positive effects on health and economic equality.
+
+
+## Overall Discussion and Conclusions 
+
+Taken together, the visualizations provide a multi-dimensional view of global inequality and social progress. Key insights include:
+
+- **Diverse Pathways:** The differences between developed and emerging economies are clear. While countries such as Switzerland, Canada, and Japan show high baseline performance in Life Expectancy and HDI, countries like Ghana and India exhibit rapid progress—albeit starting from a lower base.
+- **Inequality vs. Progress:** Improvements in indicators like HDI and Life Expectancy are often linked with reductions in poverty; however, persistent or increasing inequality (as indicated by the Gini Coefficient) in some countries suggests that growth is not always evenly distributed.
+- **Interrelated Dimensions:** The correlation heatmap reinforces that investments in education, healthcare, and overall human development tend to work in tandem. For instance, a higher Education Index often accompanies increases in HDI and Life Expectancy, while lower poverty rates are associated with lower levels of inequality.
+- **Policy Implications:** The results underscore that tackling global inequality requires holistic strategies. Focused interventions in healthcare, education, and economic policy are critical to ensuring that the benefits of social progress are widely shared.
+
+**Conclusion:**  
+While significant strides have been made in improving key indicators of social progress around the world, challenges remain. The diverse trajectories of the selected countries highlight both successes in raising living standards and ongoing issues related to income inequality. These findings advocate for sustained, inclusive policies that bridge the gap between rapid growth and equitable development, ensuring that improvements in human development translate into shared prosperity.
